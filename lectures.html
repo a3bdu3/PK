@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Lectures Library</title>
+  <style>
+    :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; }
+    body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom: 12px; }
+    h1 { margin:0; font-size: 20px; }
+    .nav a{
+      display:inline-block; padding:8px 10px; border-radius: 10px;
+      border:1px solid var(--border); background:#fff; color:#111827; text-decoration:none; font-size: 13px;
+      margin-left:6px;
+    }
+    .nav a:hover{ border-color:#9ca3af; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: 0 10px 18px rgba(0,0,0,.06); }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 10px; }
+    .btn {
+      padding:10px 12px; border-radius: 10px; border:1px solid #111827;
+      background:#111827; color:#fff; cursor:pointer; font-size: 14px;
+    }
+    .btn.secondary { background:#fff; color:#111827; border-color: var(--border); }
+    input[type="file"]{ padding:10px; border:1px solid var(--border); border-radius:10px; background:#fff; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 10px; }
+    table { width:100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align:left; padding:10px; border-bottom:1px solid var(--border); font-size: 14px; vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .pill { display:inline-block; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color: var(--muted); }
+    .actions a, .actions button { margin-right: 8px; }
+    .link { color:#111827; text-decoration: underline; cursor:pointer; background:none; border:none; padding:0; font:inherit; }
+    .danger { color:#b91c1c; }
+    .search { width: min(520px, 100%); padding:10px; border:1px solid var(--border); border-radius:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>Lectures Library</h1>
+      <div class="nav">
+        <a href="index.html">Home</a>
+        <a href="calculators.html">Calculators</a>
+        <a href="about.html">About</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <input id="fileInput" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple />
+        <button class="btn" id="saveBtn">Add to Library</button>
+        <button class="btn secondary" id="clearAllBtn">Clear Library</button>
+      </div>
+
+      <div class="row">
+        <input id="search" class="search" placeholder="Search by filename..." />
+        <span class="pill" id="countPill">0 files</span>
+      </div>
+
+      <div class="note">
+        Offline mode: files are saved **inside your browser on this computer** (IndexedDB).  
+        They won’t sync to other devices unless you later add a backend or manually copy files.
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Type</th>
+            <th>Size</th>
+            <th>Added</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="list"></tbody>
+      </table>
+
+      <div class="note danger" id="err" style="display:none;"></div>
+    </div>
+  </div>
+
+<script>
+/* ===== IndexedDB helpers ===== */
+const DB_NAME = "lectures_db";
+const STORE = "files";
+const DB_VER = 1;
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)){
+        const os = db.createObjectStore(STORE, { keyPath: "id" });
+        os.createIndex("name", "name", { unique: false });
+        os.createIndex("addedAt", "addedAt", { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function tx(db, mode="readonly"){
+  return db.transaction(STORE, mode).objectStore(STORE);
+}
+
+function humanSize(bytes){
+  const units = ["B","KB","MB","GB"];
+  let b = bytes, i = 0;
+  while (b >= 1024 && i < units.length-1){ b/=1024; i++; }
+  return `${b.toFixed(i===0?0:1)} ${units[i]}`;
+}
+
+function uuid(){
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2));
+}
+
+/* ===== UI ===== */
+const fileInput = document.getElementById("fileInput");
+const saveBtn = document.getElementById("saveBtn");
+const clearAllBtn = document.getElementById("clearAllBtn");
+const listEl = document.getElementById("list");
+const errEl = document.getElementById("err");
+const searchEl = document.getElementById("search");
+const countPill = document.getElementById("countPill");
+
+let DB = null;
+let cache = []; // list of metadata
+
+function showErr(msg){
+  errEl.textContent = msg;
+  errEl.style.display = msg ? "block" : "none";
+}
+
+async function loadAll(){
+  showErr("");
+  const db = DB;
+  const store = tx(db);
+  const req = store.getAll();
+  const rows = await new Promise((resolve, reject)=>{
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  cache = rows.sort((a,b)=>b.addedAt - a.addedAt);
+  render();
+}
+
+function render(){
+  const q = (searchEl.value || "").toLowerCase().trim();
+  const rows = q ? cache.filter(r=>r.name.toLowerCase().includes(q)) : cache;
+
+  countPill.textContent = `${rows.length} file${rows.length===1?"":"s"}`;
+
+  listEl.innerHTML = "";
+  rows.forEach(r=>{
+    const tr = document.createElement("tr");
+
+    const nameTd = document.createElement("td");
+    nameTd.textContent = r.name;
+
+    const typeTd = document.createElement("td");
+    typeTd.innerHTML = `<span class="pill">${r.ext.toUpperCase()}</span>`;
+
+    const sizeTd = document.createElement("td");
+    sizeTd.textContent = humanSize(r.size);
+
+    const addedTd = document.createElement("td");
+    addedTd.textContent = new Date(r.addedAt).toLocaleString();
+
+    const actionsTd = document.createElement("td");
+    actionsTd.className = "actions";
+
+    const openBtn = document.createElement("button");
+    openBtn.className = "link";
+    openBtn.textContent = "Download";
+    openBtn.onclick = async () => downloadFile(r.id);
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "link danger";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = async () => deleteFile(r.id);
+
+    actionsTd.appendChild(openBtn);
+    actionsTd.appendChild(delBtn);
+
+    tr.appendChild(nameTd);
+    tr.appendChild(typeTd);
+    tr.appendChild(sizeTd);
+    tr.appendChild(addedTd);
+    tr.appendChild(actionsTd);
+
+    listEl.appendChild(tr);
+  });
+}
+
+async function saveFiles(){
+  showErr("");
+  const files = [...(fileInput.files || [])];
+  if (!files.length){
+    showErr("Select one or more PPT/PPTX files first.");
+    return;
+  }
+
+  const db = DB;
+  const store = tx(db, "readwrite");
+
+  for (const f of files){
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    if (ext !== "ppt" && ext !== "pptx") continue;
+
+    const buf = await f.arrayBuffer();
+
+    const rec = {
+      id: uuid(),
+      name: f.name,
+      ext,
+      type: f.type || (ext==="pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"),
+      size: f.size,
+      addedAt: Date.now(),
+      data: buf
+    };
+
+    await new Promise((resolve, reject)=>{
+      const req = store.put(rec);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  fileInput.value = "";
+  await loadAll();
+}
+
+async function downloadFile(id){
+  showErr("");
+  const db = DB;
+  const store = tx(db);
+  const req = store.get(id);
+  const rec = await new Promise((resolve, reject)=>{
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  if (!rec){ showErr("File not found in library."); return; }
+
+  const blob = new Blob([rec.data], { type: rec.type || "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = rec.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+async function deleteFile(id){
+  showErr("");
+  const ok = confirm("Delete this lecture from the library?");
+  if (!ok) return;
+
+  const db = DB;
+  const store = tx(db, "readwrite");
+  await new Promise((resolve, reject)=>{
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+  await loadAll();
+}
+
+async function clearAll(){
+  showErr("");
+  const ok = confirm("Clear the entire lectures library on this browser/computer?");
+  if (!ok) return;
+
+  const db = DB;
+  const store = tx(db, "readwrite");
+  await new Promise((resolve, reject)=>{
+    const req = store.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+  await loadAll();
+}
+
+/* ===== Init ===== */
+(async function init(){
+  try{
+    DB = await openDB();
+    await loadAll();
+  } catch(e){
+    showErr("Could not open local database. Some browsers restrict file storage in local HTML. Try opening in Chrome/Edge and keep files in a normal folder (not email attachment).");
+    console.error(e);
+  }
+})();
+
+saveBtn.onclick = saveFiles;
+clearAllBtn.onclick = clearAll;
+searchEl.oninput = render;
+</script>
+</body>
+</html>

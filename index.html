@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PK Tools</title>
+  <style>
+    :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; }
+    body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 980px; margin: 28px auto; padding: 0 16px; }
+
+    .topbar{
+      display:flex; justify-content:space-between; align-items:center; gap:12px;
+      margin-bottom: 12px;
+    }
+    h1 { margin:0; font-size: 22px; }
+    .nav a{
+      display:inline-block; padding:8px 10px; border-radius: 10px;
+      border:1px solid var(--border); background:#fff; color:#111827; text-decoration:none; font-size: 13px;
+      margin-left:6px;
+    }
+    .nav a:hover{ border-color:#9ca3af; }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius: 16px; padding: 18px; box-shadow: 0 10px 18px rgba(0,0,0,.06); }
+    p { margin: 8px 0; color: var(--muted); line-height: 1.6; }
+
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    @media (max-width: 760px){ .grid{ grid-template-columns:1fr; } }
+
+    a.box{
+      display:block; text-decoration:none; color:inherit;
+      border:1px solid var(--border); border-radius: 14px; padding: 14px; background:#fff;
+    }
+    a.box:hover { border-color:#9ca3af; }
+    .title { font-weight: 700; margin-bottom: 6px; }
+    .mini { color: var(--muted); font-size: 13px; line-height: 1.4; }
+
+    .row { display:flex; gap:10px; flex-wrap:wrap; margin-top: 14px; }
+    .btn {
+      display:inline-block; padding:10px 12px; border-radius: 12px;
+      border:1px solid #111827; background:#111827; color:#fff; text-decoration:none; font-size: 14px;
+    }
+    .btn.secondary { background:#fff; color:#111827; border-color: var(--border); }
+    .footer { margin-top: 14px; font-size: 12px; color: var(--muted); }
+    .pill { display:inline-block; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color: var(--muted); background:#fff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>PK Tools</h1>
+      <div class="nav">
+        <a href="calculators.html">Calculators</a>
+        <a href="lectures.html">Lectures</a>
+        <a href="about.html">About</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="pill">Offline-ready</span>
+
+      <p>
+        A lightweight PK toolkit with concentration–time plots, multiple dosing/steady-state simulation, and a local lectures library.
+      </p>
+
+      <div class="row">
+        <a class="btn" href="calculators.html">Open Calculators</a>
+        <a class="btn secondary" href="lectures.html">Open Lectures</a>
+      </div>
+
+      <div class="grid">
+        <a class="box" href="calculators.html">
+          <div class="title">PK Calculators</div>
+          <div class="mini">
+            Oral (Ka/Ke), IV bolus, intermittent infusion, and nonlinear PK (Michaelis–Menten) with plots and steady-state outputs.
+          </div>
+        </a>
+
+        <a class="box" href="lectures.html">
+          <div class="title">Lectures Library</div>
+          <div class="mini">
+            Add your PPT/PPTX lectures to a local library stored inside this browser (IndexedDB), then download/open them later.
+          </div>
+        </a>
+
+        <a class="box" href="about.html">
+          <div class="title">About / Disclaimer</div>
+          <div class="mini">
+            Model assumptions, equations, and usage notes.
+          </div>
+        </a>
+
+        <a class="box" href="calculators.html#nonlinear">
+          <div class="title">Nonlinear PK Quick Start</div>
+          <div class="mini">
+            Jump directly to the nonlinear PK tab and test saturable elimination with repeated dosing.
+          </div>
+        </a>
+      </div>
+
+      <div class="footer">
+        Tip: keep <b>index.html</b>, <b>calculators.html</b>, <b>lectures.html</b>, and <b>about.html</b> in the <b>same folder</b>.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

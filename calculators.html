@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PK Calculators</title>
+  <style>
+    :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; }
+    body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 20px; margin: 0 0 10px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom: 10px; }
+    .nav a{
+      display:inline-block; padding:8px 10px; border-radius: 10px;
+      border:1px solid var(--border); background:#fff; color:#111827; text-decoration:none; font-size: 13px;
+      margin-left:6px;
+    }
+    .nav a:hover{ border-color:#9ca3af; }
+
+    .tabs { display:flex; flex-wrap:wrap; gap:8px; margin: 12px 0 16px; }
+    .tabbtn {
+      border:1px solid var(--border); background:#fff; padding:10px 12px;
+      border-radius: 10px; cursor:pointer; font-size: 13px;
+    }
+    .tabbtn.active { background:#111827; color:#fff; border-color:#111827; }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: 0 10px 18px rgba(0,0,0,.06); }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 880px){ .grid{ grid-template-columns:1fr; } }
+
+    .split { display:grid; grid-template-columns: 1.25fr 1fr; gap: 14px; }
+    @media (max-width: 980px){ .split{ grid-template-columns:1fr; } }
+
+    .field { display:flex; flex-direction:column; gap:6px; }
+    label { font-size: 12px; color: var(--muted); }
+    input, select {
+      padding:10px 10px; border-radius:10px; border:1px solid var(--border); font-size: 14px; outline:none;
+    }
+    input:focus, select:focus { border-color:#9ca3af; }
+
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 12px; }
+    .btn {
+      padding:10px 12px; border-radius: 10px; border:1px solid #111827;
+      background:#111827; color:#fff; cursor:pointer; font-size: 14px;
+    }
+    .btn.secondary { background:#fff; color:#111827; border-color: var(--border); }
+
+    .note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 10px; }
+    .out { margin-top: 14px; padding: 12px; border-radius: 12px; background:#f9fafb; border:1px dashed var(--border); }
+    .out h3 { margin:0 0 8px; font-size: 14px; }
+    .kv { display:grid; grid-template-columns: 260px 1fr; gap: 8px; font-size: 13px; }
+    @media (max-width: 880px){ .kv{ grid-template-columns:1fr; } }
+    .k { color: var(--muted); }
+    .err { color:#b91c1c; font-size:12px; margin-top:10px; }
+
+    .formula {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px; color:#374151; background:#f3f4f6; padding:10px; border-radius:12px; border:1px solid var(--border);
+    }
+
+    .plotCard { margin-top: 0; padding: 12px; border-radius: 12px; background:#fff; border:1px solid var(--border); }
+    canvas { width: 100%; height: 360px; display:block; }
+    .mini { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>PK Calculators</h1>
+      <div class="nav">
+        <a href="index.html">Home</a>
+        <a href="about.html">About</a>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+    <div class="card" id="panel"></div>
+
+    <div class="note">
+      Multiple dosing is simulated by superposition on a time grid (dt). Units toggle **mg/L ↔ µg/mL** changes the label (numerically identical).
+      Nonlinear tab simulates a 1-compartment Michaelis–Menten elimination model using a small-step ODE integrator.
+    </div>
+  </div>
+
+<script>
+/* ======================= Utilities ======================= */
+function n(v){ return Number(v); }
+function isPos(x){ return Number.isFinite(x) && x > 0; }
+function isNonNeg(x){ return Number.isFinite(x) && x >= 0; }
+function fmt(x, digits=4){
+  if (!Number.isFinite(x)) return "—";
+  const ax = Math.abs(x);
+  if (ax !== 0 && (ax >= 1e6 || ax < 1e-4)) return x.toExponential(4);
+  return x.toFixed(digits);
+}
+function halfLifeFromK(k){ return Math.log(2)/k; }
+
+/* ======================= Plotting (fixed Y-label overlap) ======================= */
+function drawPlot(canvas, series, xLabel, yLabel, opts={}){
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+
+  const cssW = canvas.clientWidth;
+  const cssH = canvas.clientHeight;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  ctx.clearRect(0,0,cssW,cssH);
+
+  // Increased left padding + moved tick labels to right-align near axis.
+  const padL = 88, padR = 18, padT = 14, padB = 42;
+  const W = cssW - padL - padR;
+  const H = cssH - padT - padB;
+
+  const xs = series.map(p=>p.x);
+  const ys = series.map(p=>p.y);
+
+  let xmin = Math.min(...xs), xmax = Math.max(...xs);
+  let ymin = 0, ymax = Math.max(...ys);
+
+  if (!Number.isFinite(ymax) || ymax <= 0) ymax = 1;
+  if (xmax === xmin) xmax = xmin + 1;
+  ymax *= 1.05;
+
+  function xToPx(x){ return padL + ((x-xmin)/(xmax-xmin))*W; }
+  function yToPx(y){ return padT+H - ((y-ymin)/(ymax-ymin))*H; }
+
+  // Axes
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT+H);
+  ctx.lineTo(padL+W, padT+H);
+  ctx.stroke();
+
+  // Grid + ticks
+  const xTicks = opts.xTicks ?? 5;
+  const yTicks = opts.yTicks ?? 5;
+
+  ctx.font = "12px Arial";
+  ctx.fillStyle = "#6b7280";
+
+  // X ticks
+  for (let i=0; i<=xTicks; i++){
+    const t = i/xTicks;
+    const x = padL + t*W;
+    const xv = xmin + t*(xmax-xmin);
+
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT+H); ctx.stroke();
+
+    ctx.fillStyle = "#6b7280";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(fmt(xv,2), x, padT+H+8);
+  }
+
+  // Y ticks (right-aligned so numbers stay away from the rotated label)
+  for (let i=0; i<=yTicks; i++){
+    const t = i/yTicks;
+    const y = padT+H - t*H;
+    const yv = ymin + t*(ymax-ymin);
+
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL+W, y); ctx.stroke();
+
+    ctx.fillStyle = "#6b7280";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(fmt(yv,2), padL - 10, y);
+  }
+
+  // Labels
+  ctx.fillStyle = "#111827";
+  ctx.font = "12px Arial";
+
+  // X label
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(xLabel, padL + W/2, padT+H+34);
+
+  // Y label (placed further left, away from tick numbers)
+  ctx.save();
+  ctx.translate(22, padT + H/2);   // << moved left
+  ctx.rotate(-Math.PI/2);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+
+  // Line
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  series.forEach((p,idx)=>{
+    const xp = xToPx(p.x);
+    const yp = yToPx(p.y);
+    if (idx===0) ctx.moveTo(xp, yp);
+    else ctx.lineTo(xp, yp);
+  });
+  ctx.stroke();
+
+  // Markers (dose times)
+  if (opts.markers && opts.markers.length){
+    ctx.fillStyle = "#111827";
+    opts.markers.forEach(mt=>{
+      if (mt < xmin || mt > xmax) return;
+      const x = xToPx(mt);
+      ctx.beginPath();
+      ctx.arc(x, padT+H, 3, 0, Math.PI*2);
+      ctx.fill();
+    });
+  }
+}
+
+/* ======================= PK contributions (linear models) ======================= */
+function bolusContribution(t, t0, Dose, CL, V){
+  if (t < t0) return 0;
+  const Ke = CL/V;
+  return (Dose/V) * Math.exp(-Ke*(t - t0));
+}
+function oralContribution(t, t0, Dose, F, CL, V, Ka){
+  if (t < t0) return 0;
+  const Ke = CL/V;
+  const dt = t - t0;
+  if (Math.abs(Ka - Ke) < 1e-10) return NaN;
+  return (F*Dose*Ka)/(V*(Ka-Ke)) * (Math.exp(-Ke*dt) - Math.exp(-Ka*dt));
+}
+function infusionContribution(t, t0, Dose, Tinf, CL, V){
+  if (t < t0) return 0;
+  const Ke = CL/V;
+  const R0 = Dose / Tinf;
+  const dt = t - t0;
+  if (dt <= Tinf){
+    return (R0/CL) * (1 - Math.exp(-Ke*dt));
+  } else {
+    const Cend = (R0/CL) * (1 - Math.exp(-Ke*Tinf));
+    const tau = dt - Tinf;
+    return Cend * Math.exp(-Ke*tau);
+  }
+}
+
+function simulateLinearCurve({model, Dose, F, CL, V, Ka, Tinf, tau, nDoses, tEnd, dt}){
+  const series = [];
+  const markers = [];
+  const Ke = CL/V;
+
+  for (let k=0; k<nDoses; k++) markers.push(k*tau);
+
+  const steps = Math.max(2, Math.floor(tEnd/dt) + 1);
+  for (let i=0; i<steps; i++){
+    const t = i*dt;
+    let c = 0;
+    for (let k=0; k<nDoses; k++){
+      const t0 = k*tau;
+      if (model === "bolus") c += bolusContribution(t, t0, Dose, CL, V);
+      else if (model === "oral") c += oralContribution(t, t0, Dose, F, CL, V, Ka);
+      else if (model === "infusion") c += infusionContribution(t, t0, Dose, Tinf, CL, V);
+    }
+    series.push({x:t, y:c});
+  }
+
+  // Steady-state summary from last interval
+  let ss = { Cmax: NaN, Cmin: NaN };
+  if (nDoses >= 2){
+    const start = (nDoses-1)*tau;
+    const end = start + tau;
+    let cmax=-Infinity, cmin=Infinity;
+    for (const p of series){
+      if (p.x >= start && p.x <= end){
+        if (Number.isFinite(p.y)){
+          cmax = Math.max(cmax, p.y);
+          cmin = Math.min(cmin, p.y);
+        }
+      }
+    }
+    ss.Cmax = Number.isFinite(cmax) ? cmax : NaN;
+    ss.Cmin = Number.isFinite(cmin) ? cmin : NaN;
+  }
+
+  return { series, markers, Ke, tHalf: halfLifeFromK(Ke), ss };
+}
+
+/* ======================= Shared control blocks ======================= */
+function plotControlsHTML(defaultEnd=24){
+  return `
+    <div class="grid" style="margin-top:12px;">
+      <div class="field">
+        <label>Concentration units (label)</label>
+        <select id="unit">
+          <option value="mg/L">mg/L</option>
+          <option value="µg/mL">µg/mL</option>
+        </select>
+      </div>
+      <div class="field"><label>Plot time step dt (h)</label><input id="dt" type="number" step="any" value="0.05"></div>
+      <div class="field"><label>Plot end time (h)</label><input id="tend" type="number" step="any" value="${defaultEnd}"></div>
+      <div class="field">
+        <label>Show dose markers</label>
+        <select id="showMarkers">
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+    </div>
+  `;
+}
+
+/* ======================= Tabs scaffolding ======================= */
+const calculators = [
+  { key:"oral", name:"Oral (Ka/Ke)", render: renderOral },
+  { key:"ivbolus", name:"IV Bolus", render: renderIVBolus },
+  { key:"infusion", name:"Intermittent Infusion", render: renderIntermittentInfusion },
+  { key:"nonlinear", name:"Nonlinear PK (Dose + Plot)", render: renderNonlinearDosePlot },
+];
+
+const tabsEl = document.getElementById("tabs");
+const panelEl = document.getElementById("panel");
+let activeKey = calculators[0].key;
+
+function setActive(key){
+  activeKey = key;
+  [...tabsEl.querySelectorAll("button")].forEach(b => b.classList.toggle("active", b.dataset.key===key));
+  const c = calculators.find(x=>x.key===key);
+  panelEl.innerHTML = "";
+  c.render(panelEl);
+}
+
+(function buildTabs(){
+  calculators.forEach(c=>{
+    const btn = document.createElement("button");
+    btn.className = "tabbtn" + (c.key===activeKey ? " active":"");
+    btn.textContent = c.name;
+    btn.dataset.key = c.key;
+    btn.onclick = () => setActive(c.key);
+    tabsEl.appendChild(btn);
+  });
+})();
+setActive(activeKey);
+
+/* ======================= Tab 1: Oral ======================= */
+function renderOral(root){
+  root.innerHTML = `
+    <h2 style="margin:0 0 10px;font-size:16px;">Oral (1-compartment, first-order absorption)</h2>
+    <div class="formula">
+      C(t) = (F·Dose·Ka)/(V·(Ka−Ke)) · (e^{−Ke·t} − e^{−Ka·t}), Ke=CL/V, AUC=F·Dose/CL
+    </div>
+
+    <div class="split" style="margin-top:12px;">
+      <div>
+        <div class="grid">
+          <div class="field"><label>Dose (mg)</label><input id="dose" type="number" step="any" value="500"></div>
+          <div class="field"><label>Bioavailability F (0–1)</label><input id="F" type="number" step="any" value="1"></div>
+          <div class="field"><label>CL (L/h)</label><input id="cl" type="number" step="any" value="10"></div>
+          <div class="field"><label>V (L)</label><input id="v" type="number" step="any" value="50"></div>
+          <div class="field"><label>Ka (1/h)</label><input id="ka" type="number" step="any" value="1.2"></div>
+          <div class="field"><label>Time point t (h)</label><input id="tpoint" type="number" step="any" value="2"></div>
+
+          <div class="field"><label>Dosing interval τ (h)</label><input id="tau" type="number" step="any" value="8"></div>
+          <div class="field"><label>Number of doses (N)</label><input id="nDoses" type="number" step="1" value="10"></div>
+        </div>
+
+        ${plotControlsHTML(24)}
+
+        <div class="row">
+          <button class="btn" id="calc">Calculate + Plot</button>
+          <button class="btn secondary" id="reset">Reset</button>
+        </div>
+
+        <div class="err" id="err"></div>
+        <div class="out" id="out" style="display:none;"></div>
+      </div>
+
+      <div class="plotCard">
+        <div class="mini">Concentration–time curve</div>
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+  `;
+
+  const dose = root.querySelector("#dose");
+  const F = root.querySelector("#F");
+  const cl = root.querySelector("#cl");
+  const v = root.querySelector("#v");
+  const ka = root.querySelector("#ka");
+  const tpoint = root.querySelector("#tpoint");
+  const tau = root.querySelector("#tau");
+  const nDoses = root.querySelector("#nDoses");
+  const unit = root.querySelector("#unit");
+  const dt = root.querySelector("#dt");
+  const tend = root.querySelector("#tend");
+  const showMarkers = root.querySelector("#showMarkers");
+  const err = root.querySelector("#err");
+  const out = root.querySelector("#out");
+  const canvas = root.querySelector("#canvas");
+
+  function calc(){
+    err.textContent = "";
+    out.style.display = "none";
+
+    const Dose = n(dose.value), bio = n(F.value), CL = n(cl.value), V = n(v.value), Ka = n(ka.value);
+    const Tpoint = n(tpoint.value), Tau = n(tau.value), ND = Math.floor(n(nDoses.value));
+    const Dt = n(dt.value), TEnd = n(tend.value);
+
+    if (!isPos(Dose) || !isNonNeg(bio) || bio>1 || !isPos(CL) || !isPos(V) || !isPos(Ka) ||
+        !isNonNeg(Tpoint) || !isPos(Tau) || !(ND>=1) || !isPos(Dt) || !isPos(TEnd)){
+      err.textContent = "Check inputs: Dose>0, 0≤F≤1, CL>0, V>0, Ka>0, t≥0, τ>0, N≥1, dt>0, plot end>0.";
+      return;
+    }
+
+    const Ke = CL/V;
+    if (Math.abs(Ka - Ke) < 1e-9){
+      err.textContent = "Ka is too close to Ke; choose different Ka/CL/V.";
+      return;
+    }
+
+    const Ct_single = oralContribution(Tpoint, 0, Dose, bio, CL, V, Ka);
+    const AUC = (bio*Dose)/CL;
+    const t12 = halfLifeFromK(Ke);
+
+    let tmax = NaN, cmax = NaN;
+    if (Ka > Ke){
+      tmax = Math.log(Ka/Ke)/(Ka-Ke);
+      cmax = oralContribution(tmax, 0, Dose, bio, CL, V, Ka);
+    }
+
+    const sim = simulateLinearCurve({
+      model:"oral", Dose, F:bio, CL, V, Ka,
+      tau: Tau, nDoses: ND, tEnd: TEnd, dt: Dt
+    });
+
+    const u = unit.value;
+
+    out.innerHTML = `
+      <h3>Results</h3>
+      <div class="kv">
+        <div class="k">Ke (1/h)</div><div>${fmt(Ke)}</div>
+        <div class="k">Half-life (h)</div><div>${fmt(t12,3)}</div>
+        <div class="k">Single-dose C(t) at t=${fmt(Tpoint,2)} h</div><div>${fmt(Ct_single,4)} ${u}</div>
+        <div class="k">AUC₀–∞ (single dose)</div><div>${fmt(AUC,4)} (mg·h/L)</div>
+        <div class="k">tmax (single dose)</div><div>${Number.isFinite(tmax) ? fmt(tmax,3)+" h" : "Not defined (requires Ka > Ke)"}</div>
+        <div class="k">Cmax (single dose)</div><div>${Number.isFinite(cmax) ? fmt(cmax,4)+" "+u : "Not defined (requires Ka > Ke)"}</div>
+        <div class="k">“Steady-state” (last interval) Cmax</div><div>${Number.isFinite(sim.ss.Cmax) ? fmt(sim.ss.Cmax,4)+" "+u : "—"}</div>
+        <div class="k">“Steady-state” (last interval) Cmin</div><div>${Number.isFinite(sim.ss.Cmin) ? fmt(sim.ss.Cmin,4)+" "+u : "—"}</div>
+      </div>
+    `;
+    out.style.display = "block";
+
+    const markers = (showMarkers.value==="yes") ? sim.markers : [];
+    drawPlot(canvas, sim.series, "Time (h)", `Concentration (${u})`, { markers });
+  }
+
+  root.querySelector("#calc").onclick = calc;
+  root.querySelector("#reset").onclick = () => {
+    dose.value=500; F.value=1; cl.value=10; v.value=50; ka.value=1.2; tpoint.value=2;
+    tau.value=8; nDoses.value=10; unit.value="mg/L"; dt.value=0.05; tend.value=24; showMarkers.value="yes";
+    err.textContent=""; out.style.display="none";
+    drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+  };
+
+  drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+}
+
+/* ======================= Tab 2: IV Bolus ======================= */
+function renderIVBolus(root){
+  root.innerHTML = `
+    <h2 style="margin:0 0 10px;font-size:16px;">IV Bolus (1-compartment)</h2>
+    <div class="formula">
+      Single dose: C(t)=(Dose/V)·e^{−Ke·t}, Ke=CL/V, AUC=Dose/CL
+    </div>
+
+    <div class="split" style="margin-top:12px;">
+      <div>
+        <div class="grid">
+          <div class="field"><label>Dose (mg)</label><input id="dose" type="number" step="any" value="1000"></div>
+          <div class="field"><label>CL (L/h)</label><input id="cl" type="number" step="any" value="8"></div>
+          <div class="field"><label>V (L)</label><input id="v" type="number" step="any" value="40"></div>
+          <div class="field"><label>Time point t (h)</label><input id="tpoint" type="number" step="any" value="4"></div>
+
+          <div class="field"><label>Dosing interval τ (h)</label><input id="tau" type="number" step="any" value="12"></div>
+          <div class="field"><label>Number of doses (N)</label><input id="nDoses" type="number" step="1" value="10"></div>
+        </div>
+
+        ${plotControlsHTML(48)}
+
+        <div class="row">
+          <button class="btn" id="calc">Calculate + Plot</button>
+          <button class="btn secondary" id="reset">Reset</button>
+        </div>
+
+        <div class="err" id="err"></div>
+        <div class="out" id="out" style="display:none;"></div>
+      </div>
+
+      <div class="plotCard">
+        <div class="mini">Concentration–time curve</div>
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+  `;
+
+  const dose = root.querySelector("#dose");
+  const cl = root.querySelector("#cl");
+  const v = root.querySelector("#v");
+  const tpoint = root.querySelector("#tpoint");
+  const tau = root.querySelector("#tau");
+  const nDoses = root.querySelector("#nDoses");
+  const unit = root.querySelector("#unit");
+  const dt = root.querySelector("#dt");
+  const tend = root.querySelector("#tend");
+  const showMarkers = root.querySelector("#showMarkers");
+  const err = root.querySelector("#err");
+  const out = root.querySelector("#out");
+  const canvas = root.querySelector("#canvas");
+
+  function calc(){
+    err.textContent = "";
+    out.style.display = "none";
+
+    const Dose = n(dose.value), CL = n(cl.value), V = n(v.value), Tpoint = n(tpoint.value);
+    const Tau = n(tau.value), ND = Math.floor(n(nDoses.value));
+    const Dt = n(dt.value), TEnd = n(tend.value);
+
+    if (!isPos(Dose) || !isPos(CL) || !isPos(V) || !isNonNeg(Tpoint) || !isPos(Tau) || !(ND>=1) || !isPos(Dt) || !isPos(TEnd)){
+      err.textContent = "Check inputs: Dose>0, CL>0, V>0, t≥0, τ>0, N≥1, dt>0, plot end>0.";
+      return;
+    }
+
+    const Ke = CL/V;
+    const C0 = Dose/V;
+    const Ct_single = C0 * Math.exp(-Ke*Tpoint);
+    const AUC = Dose/CL;
+    const t12 = halfLifeFromK(Ke);
+
+    const sim = simulateLinearCurve({
+      model:"bolus", Dose, CL, V,
+      tau: Tau, nDoses: ND, tEnd: TEnd, dt: Dt
+    });
+
+    const u = unit.value;
+
+    out.innerHTML = `
+      <h3>Results</h3>
+      <div class="kv">
+        <div class="k">Ke (1/h)</div><div>${fmt(Ke)}</div>
+        <div class="k">Half-life (h)</div><div>${fmt(t12,3)}</div>
+        <div class="k">Single-dose C0</div><div>${fmt(C0,4)} ${u}</div>
+        <div class="k">Single-dose C(t) at t=${fmt(Tpoint,2)} h</div><div>${fmt(Ct_single,4)} ${u}</div>
+        <div class="k">AUC₀–∞ (single dose)</div><div>${fmt(AUC,4)} (mg·h/L)</div>
+        <div class="k">“Steady-state” (last interval) Cmax</div><div>${Number.isFinite(sim.ss.Cmax) ? fmt(sim.ss.Cmax,4)+" "+u : "—"}</div>
+        <div class="k">“Steady-state” (last interval) Cmin</div><div>${Number.isFinite(sim.ss.Cmin) ? fmt(sim.ss.Cmin,4)+" "+u : "—"}</div>
+      </div>
+    `;
+    out.style.display = "block";
+
+    const markers = (showMarkers.value==="yes") ? sim.markers : [];
+    drawPlot(canvas, sim.series, "Time (h)", `Concentration (${u})`, { markers });
+  }
+
+  root.querySelector("#calc").onclick = calc;
+  root.querySelector("#reset").onclick = () => {
+    dose.value=1000; cl.value=8; v.value=40; tpoint.value=4;
+    tau.value=12; nDoses.value=10; unit.value="mg/L"; dt.value=0.05; tend.value=48; showMarkers.value="yes";
+    err.textContent=""; out.style.display="none";
+    drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+  };
+
+  drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+}
+
+/* ======================= Tab 3: Intermittent Infusion ======================= */
+function renderIntermittentInfusion(root){
+  root.innerHTML = `
+    <h2 style="margin:0 0 10px;font-size:16px;">Intermittent IV Infusion (repeated dosing)</h2>
+    <div class="formula">
+      Per infusion: R0=Dose/Tinf, Ke=CL/V<br/>
+      During: C(t)=(R0/CL)·(1−e^{−Ke·t}); After: C(τ)=Cend·e^{−Ke·τ}
+    </div>
+
+    <div class="split" style="margin-top:12px;">
+      <div>
+        <div class="grid">
+          <div class="field"><label>Dose per infusion (mg)</label><input id="dose" type="number" step="any" value="1000"></div>
+          <div class="field"><label>Infusion duration Tinf (h)</label><input id="tinf" type="number" step="any" value="1"></div>
+          <div class="field"><label>CL (L/h)</label><input id="cl" type="number" step="any" value="10"></div>
+          <div class="field"><label>V (L)</label><input id="v" type="number" step="any" value="50"></div>
+
+          <div class="field"><label>Dosing interval τ (h)</label><input id="tau" type="number" step="any" value="8"></div>
+          <div class="field"><label>Number of doses (N)</label><input id="nDoses" type="number" step="1" value="10"></div>
+
+          <div class="field"><label>Time point t (h)</label><input id="tpoint" type="number" step="any" value="2"></div>
+        </div>
+
+        ${plotControlsHTML(48)}
+
+        <div class="row">
+          <button class="btn" id="calc">Calculate + Plot</button>
+          <button class="btn secondary" id="reset">Reset</button>
+        </div>
+
+        <div class="err" id="err"></div>
+        <div class="out" id="out" style="display:none;"></div>
+      </div>
+
+      <div class="plotCard">
+        <div class="mini">Concentration–time curve</div>
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+  `;
+
+  const dose = root.querySelector("#dose");
+  const tinf = root.querySelector("#tinf");
+  const cl = root.querySelector("#cl");
+  const v = root.querySelector("#v");
+  const tau = root.querySelector("#tau");
+  const nDoses = root.querySelector("#nDoses");
+  const tpoint = root.querySelector("#tpoint");
+
+  const unit = root.querySelector("#unit");
+  const dt = root.querySelector("#dt");
+  const tend = root.querySelector("#tend");
+  const showMarkers = root.querySelector("#showMarkers");
+
+  const err = root.querySelector("#err");
+  const out = root.querySelector("#out");
+  const canvas = root.querySelector("#canvas");
+
+  function calc(){
+    err.textContent = "";
+    out.style.display = "none";
+
+    const Dose = n(dose.value), Tinf = n(tinf.value), CL = n(cl.value), V = n(v.value);
+    const Tau = n(tau.value), ND = Math.floor(n(nDoses.value));
+    const Tpoint = n(tpoint.value);
+    const Dt = n(dt.value), TEnd = n(tend.value);
+
+    if (!isPos(Dose) || !isPos(Tinf) || !isPos(CL) || !isPos(V) || !isPos(Tau) || !(ND>=1) ||
+        !isNonNeg(Tpoint) || !isPos(Dt) || !isPos(TEnd)){
+      err.textContent = "Check inputs: Dose>0, Tinf>0, CL>0, V>0, τ>0, N≥1, t≥0, dt>0, plot end>0.";
+      return;
+    }
+    if (Tinf > Tau){
+      err.textContent = "Tinf cannot exceed τ (dosing interval).";
+      return;
+    }
+
+    const Ke = CL/V;
+    const R0 = Dose/Tinf;
+    const t12 = halfLifeFromK(Ke);
+
+    const C_point_single = infusionContribution(Tpoint, 0, Dose, Tinf, CL, V);
+    const Cend_single = infusionContribution(Tinf, 0, Dose, Tinf, CL, V);
+
+    const sim = simulateLinearCurve({
+      model:"infusion", Dose, Tinf, CL, V,
+      tau: Tau, nDoses: ND, tEnd: TEnd, dt: Dt
+    });
+
+    const u = unit.value;
+
+    out.innerHTML = `
+      <h3>Results</h3>
+      <div class="kv">
+        <div class="k">Ke (1/h)</div><div>${fmt(Ke)}</div>
+        <div class="k">Half-life (h)</div><div>${fmt(t12,3)}</div>
+        <div class="k">Infusion rate R0</div><div>${fmt(R0,4)} mg/h</div>
+        <div class="k">Single infusion C(t) at t=${fmt(Tpoint,2)} h</div><div>${fmt(C_point_single,4)} ${u}</div>
+        <div class="k">Single infusion C at end (t=Tinf)</div><div>${fmt(Cend_single,4)} ${u}</div>
+        <div class="k">“Steady-state” (last interval) Cmax</div><div>${Number.isFinite(sim.ss.Cmax) ? fmt(sim.ss.Cmax,4)+" "+u : "—"}</div>
+        <div class="k">“Steady-state” (last interval) Cmin</div><div>${Number.isFinite(sim.ss.Cmin) ? fmt(sim.ss.Cmin,4)+" "+u : "—"}</div>
+      </div>
+    `;
+    out.style.display = "block";
+
+    const markers = (showMarkers.value==="yes") ? sim.markers : [];
+    drawPlot(canvas, sim.series, "Time (h)", `Concentration (${u})`, { markers });
+  }
+
+  root.querySelector("#calc").onclick = calc;
+  root.querySelector("#reset").onclick = () => {
+    dose.value=1000; tinf.value=1; cl.value=10; v.value=50;
+    tau.value=8; nDoses.value=10; tpoint.value=2;
+    unit.value="mg/L"; dt.value=0.05; tend.value=48; showMarkers.value="yes";
+    err.textContent=""; out.style.display="none";
+    drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+  };
+
+  drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+}
+
+/* ======================= Tab 4: Nonlinear PK (Dose + Plot) ======================= */
+function renderNonlinearDosePlot(root){
+  root.innerHTML = `
+    <h2 style="margin:0 0 10px;font-size:16px;">Nonlinear PK (Michaelis–Menten) — dose + plot</h2>
+    <div class="formula">
+      1-compartment saturable elimination (amount-based): dA/dt = Input(t) − (Vmax·A)/(Km·V + A), C=A/V<br/>
+      Supports repeated IV bolus or repeated intermittent infusion.
+    </div>
+
+    <div class="split" style="margin-top:12px;">
+      <div>
+        <div class="grid">
+          <div class="field">
+            <label>Input type</label>
+            <select id="inputType">
+              <option value="bolus">IV bolus (repeated)</option>
+              <option value="infusion">Intermittent infusion (repeated)</option>
+            </select>
+          </div>
+
+          <div class="field"><label>Dose per administration (mg)</label><input id="dose" type="number" step="any" value="300"></div>
+          <div class="field"><label>Dosing interval τ (h)</label><input id="tau" type="number" step="any" value="12"></div>
+          <div class="field"><label>Number of doses (N)</label><input id="nDoses" type="number" step="1" value="10"></div>
+
+          <div class="field" id="tinfField" style="display:none;">
+            <label>Infusion duration Tinf (h)</label>
+            <input id="tinf" type="number" step="any" value="1">
+          </div>
+
+          <div class="field"><label>V (L)</label><input id="v" type="number" step="any" value="40"></div>
+          <div class="field"><label>Vmax (mg/h)</label><input id="vmax" type="number" step="any" value="500"></div>
+          <div class="field"><label>Km (mg/L)</label><input id="km" type="number" step="any" value="10"></div>
+
+          <div class="field">
+            <label>Concentration units (label)</label>
+            <select id="unit">
+              <option value="mg/L">mg/L</option>
+              <option value="µg/mL">µg/mL</option>
+            </select>
+          </div>
+
+          <div class="field"><label>Simulation time step dt (h)</label><input id="dt" type="number" step="any" value="0.01"></div>
+          <div class="field"><label>Plot end time (h)</label><input id="tend" type="number" step="any" value="120"></div>
+
+          <div class="field">
+            <label>Show dose markers</label>
+            <select id="showMarkers">
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+
+          <div class="field"><label>Initial concentration C0 (optional)</label><input id="c0" type="number" step="any" placeholder="leave blank = 0"></div>
+        </div>
+
+        <div class="row">
+          <button class="btn" id="calc">Simulate + Plot</button>
+          <button class="btn secondary" id="reset">Reset</button>
+        </div>
+
+        <div class="err" id="err"></div>
+        <div class="out" id="out" style="display:none;"></div>
+      </div>
+
+      <div class="plotCard">
+        <div class="mini">Concentration–time curve (nonlinear PK)</div>
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+  `;
+
+  const inputType = root.querySelector("#inputType");
+  const doseEl = root.querySelector("#dose");
+  const tauEl = root.querySelector("#tau");
+  const nDosesEl = root.querySelector("#nDoses");
+  const tinfField = root.querySelector("#tinfField");
+  const tinfEl = root.querySelector("#tinf");
+  const vEl = root.querySelector("#v");
+  const vmaxEl = root.querySelector("#vmax");
+  const kmEl = root.querySelector("#km");
+  const unitEl = root.querySelector("#unit");
+  const dtEl = root.querySelector("#dt");
+  const tendEl = root.querySelector("#tend");
+  const showMarkersEl = root.querySelector("#showMarkers");
+  const c0El = root.querySelector("#c0");
+
+  const err = root.querySelector("#err");
+  const out = root.querySelector("#out");
+  const canvas = root.querySelector("#canvas");
+
+  function syncInput(){
+    tinfField.style.display = (inputType.value === "infusion") ? "" : "none";
+    err.textContent = "";
+    out.style.display = "none";
+  }
+  inputType.onchange = syncInput;
+  syncInput();
+
+  function simulateNonlinear({inputType, Dose, Tau, N, Tinf, V, Vmax, Km, dt, tEnd, C0}){
+    const steps = Math.max(2, Math.floor(tEnd/dt) + 1);
+    const series = new Array(steps);
+    const markers = [];
+    for (let k=0; k<N; k++) markers.push(k*Tau);
+
+    let A = (Number.isFinite(C0) ? C0 : 0) * V; // mg
+    let nextDoseIndex = 0;
+
+    function inputRateAt(time){
+      if (inputType !== "infusion") return 0;
+      const k = Math.floor(time / Tau);
+      if (k < 0 || k >= N) return 0;
+      const start = k*Tau;
+      const end = start + Tinf;
+      if (time >= start && time < end) return Dose / Tinf;
+      return 0;
+    }
+
+    function applyBolusEvents(tPrev, tNow){
+      if (inputType !== "bolus") return;
+      while (nextDoseIndex < N){
+        const td = nextDoseIndex * Tau;
+        if (td > tNow) break;
+        if (td >= tPrev && td <= tNow){
+          A += Dose;
+          nextDoseIndex++;
+        } else {
+          nextDoseIndex++;
+        }
+      }
+    }
+
+    let tPrev = 0;
+    for (let i=0; i<steps; i++){
+      const t = i * dt;
+
+      applyBolusEvents(tPrev, t);
+
+      const Rin = inputRateAt(t); // mg/h
+      const elim = (Vmax * A) / (Km * V + A); // mg/h
+      const dAdt = Rin - elim;
+
+      if (i < steps - 1){
+        A = Math.max(0, A + dAdt * dt);
+      }
+
+      const C = A / V;
+      series[i] = { x: t, y: C };
+      tPrev = t;
+    }
+
+    let ss = { Cmax: NaN, Cmin: NaN };
+    if (N >= 2){
+      const start = (N-1)*Tau;
+      const end = start + Tau;
+      let cmax=-Infinity, cmin=Infinity;
+      for (const p of series){
+        if (p.x >= start && p.x <= end){
+          if (Number.isFinite(p.y)){
+            cmax = Math.max(cmax, p.y);
+            cmin = Math.min(cmin, p.y);
+          }
+        }
+      }
+      ss.Cmax = Number.isFinite(cmax) ? cmax : NaN;
+      ss.Cmin = Number.isFinite(cmin) ? cmin : NaN;
+    }
+
+    return { series, markers, ss };
+  }
+
+  function calc(){
+    err.textContent = "";
+    out.style.display = "none";
+
+    const Dose = n(doseEl.value);
+    const Tau = n(tauEl.value);
+    const N = Math.floor(n(nDosesEl.value));
+    const Tinf = n(tinfEl.value);
+    const V = n(vEl.value);
+    const Vmax = n(vmaxEl.value);
+    const Km = n(kmEl.value);
+    const dt = n(dtEl.value);
+    const tEnd = n(tendEl.value);
+    const C0 = (c0El.value === "") ? 0 : n(c0El.value);
+
+    if (!isPos(Dose) || !isPos(Tau) || !(N>=1) || !isPos(V) || !isPos(Vmax) || !isPos(Km) || !isPos(dt) || !isPos(tEnd) || !isNonNeg(C0)){
+      err.textContent = "Check inputs: Dose>0, τ>0, N≥1, V>0, Vmax>0, Km>0, dt>0, plot end>0, C0≥0.";
+      return;
+    }
+    if (inputType.value === "infusion"){
+      if (!isPos(Tinf) || Tinf > Tau){
+        err.textContent = "For infusion: Tinf must be >0 and ≤ τ.";
+        return;
+      }
+    }
+
+    const sim = simulateNonlinear({
+      inputType: inputType.value,
+      Dose, Tau, N, Tinf,
+      V, Vmax, Km,
+      dt, tEnd,
+      C0
+    });
+
+    const u = unitEl.value;
+    const markers = (showMarkersEl.value==="yes") ? sim.markers : [];
+    drawPlot(canvas, sim.series, "Time (h)", `Concentration (${u})`, { markers });
+
+    out.innerHTML = `
+      <h3>Results</h3>
+      <div class="kv">
+        <div class="k">Model</div><div>1-compartment, Michaelis–Menten elimination</div>
+        <div class="k">Input type</div><div>${inputType.value === "bolus" ? "IV bolus" : "Intermittent infusion"}</div>
+        <div class="k">Dose</div><div>${fmt(Dose,4)} mg</div>
+        <div class="k">τ (interval)</div><div>${fmt(Tau,4)} h</div>
+        <div class="k">N (doses)</div><div>${N}</div>
+        <div class="k">V</div><div>${fmt(V,4)} L</div>
+        <div class="k">Vmax</div><div>${fmt(Vmax,4)} mg/h</div>
+        <div class="k">Km</div><div>${fmt(Km,4)} mg/L</div>
+        ${inputType.value === "infusion" ? `<div class="k">Tinf</div><div>${fmt(Tinf,4)} h</div>` : ``}
+        <div class="k">“Steady-state” (last interval) Cmax</div><div>${Number.isFinite(sim.ss.Cmax) ? fmt(sim.ss.Cmax,4)+" "+u : "—"}</div>
+        <div class="k">“Steady-state” (last interval) Cmin</div><div>${Number.isFinite(sim.ss.Cmin) ? fmt(sim.ss.Cmin,4)+" "+u : "—"}</div>
+      </div>
+    `;
+    out.style.display = "block";
+  }
+
+  root.querySelector("#calc").onclick = calc;
+  root.querySelector("#reset").onclick = () => {
+    inputType.value = "bolus";
+    doseEl.value = 300;
+    tauEl.value = 12;
+    nDosesEl.value = 10;
+    tinfEl.value = 1;
+    vEl.value = 40;
+    vmaxEl.value = 500;
+    kmEl.value = 10;
+    unitEl.value = "mg/L";
+    dtEl.value = 0.01;
+    tendEl.value = 120;
+    showMarkersEl.value = "yes";
+    c0El.value = "";
+    syncInput();
+    err.textContent = "";
+    out.style.display = "none";
+    drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+  };
+
+  drawPlot(canvas, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", {});
+}
+</script>
+</body>
+</html>
