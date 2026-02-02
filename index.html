@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -51,35 +51,44 @@
       <h1>PK Tools</h1>
       <div class="nav">
         <a href="calculators.html">Calculators</a>
+        <a href="vanc-vlbw.html">Vanco VLBW</a>
         <a href="lectures.html">Lectures</a>
         <a href="about.html">About</a>
       </div>
     </div>
 
     <div class="card">
-      <span class="pill">Offline-ready</span>
+      <span class="pill">Static site</span>
 
       <p>
-        A lightweight PK toolkit with concentration–time plots, multiple dosing/steady-state simulation, and a local lectures library.
+        A lightweight PK toolkit with calculators and a lectures library.
       </p>
 
       <div class="row">
         <a class="btn" href="calculators.html">Open Calculators</a>
-        <a class="btn secondary" href="lectures.html">Open Lectures</a>
+        <a class="btn secondary" href="vanc-vlbw.html">Open Vanco VLBW</a>
       </div>
 
       <div class="grid">
         <a class="box" href="calculators.html">
           <div class="title">PK Calculators</div>
           <div class="mini">
-            Oral (Ka/Ke), IV bolus, intermittent infusion, and nonlinear PK (Michaelis–Menten) with plots and steady-state outputs.
+            Oral (Ka/Ke), IV bolus, intermittent infusion, and nonlinear PK with plots and steady-state outputs.
+          </div>
+        </a>
+
+        <a class="box" href="vanc-vlbw.html">
+          <div class="title">Vancomycin VLBW (A priori)</div>
+          <div class="mini">
+            Computes CL/V from WT, GA, PNA, SCr; sets daily dose to AUC24=400 and selects interval using P(trough &gt; 20) &lt; 20%.
+            Infusion fixed at 2 hours.
           </div>
         </a>
 
         <a class="box" href="lectures.html">
           <div class="title">Lectures Library</div>
           <div class="mini">
-            Add your PPT/PPTX lectures to a local library stored inside this browser (IndexedDB), then download/open them later.
+            Keep your PPT/PPTX lectures organized (note: static hosting can’t store uploads server-side).
           </div>
         </a>
 
@@ -89,19 +98,13 @@
             Model assumptions, equations, and usage notes.
           </div>
         </a>
-
-        <a class="box" href="calculators.html#nonlinear">
-          <div class="title">Nonlinear PK Quick Start</div>
-          <div class="mini">
-            Jump directly to the nonlinear PK tab and test saturable elimination with repeated dosing.
-          </div>
-        </a>
       </div>
 
       <div class="footer">
-        Tip: keep <b>index.html</b>, <b>calculators.html</b>, <b>lectures.html</b>, and <b>about.html</b> in the <b>same folder</b>.
+        Tip: keep <b>index.html</b>, <b>calculators.html</b>, <b>vanc-vlbw.html</b>, <b>lectures.html</b>, and <b>about.html</b> in the <b>same folder</b> in your repo.
       </div>
     </div>
   </div>
 </body>
 </html>
+
