@@ -7,7 +7,7 @@
   <style>
     :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; }
     body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); }
-    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .wrap { max-width: 1180px; margin: 24px auto; padding: 0 16px; }
     .topbar{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom: 10px; }
     h1 { margin:0; font-size: 18px; }
     .nav a{
@@ -19,7 +19,7 @@
 
     .card { background:var(--card); border:1px solid var(--border); border-radius: 16px; padding: 14px; box-shadow: 0 10px 18px rgba(0,0,0,.06); }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
 
     .field { display:flex; flex-direction:column; gap:6px; margin-bottom: 10px; }
     label { font-size:12px; color: var(--muted); }
@@ -45,6 +45,23 @@
     .ok{ color:#065f46; }
     .bad{ color:#b91c1c; }
     code{ font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+
+    .divider { height:1px; background: var(--border); margin: 12px 0; }
+
+    /* Hover tooltip for plot */
+    .tooltip {
+      position: fixed;
+      pointer-events: none;
+      background: rgba(17, 24, 39, 0.92);
+      color: #fff;
+      padding: 6px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.2;
+      display: none;
+      z-index: 9999;
+      transform: translate(10px, 10px);
+    }
   </style>
 </head>
 <body>
@@ -58,10 +75,14 @@
     </div>
 
     <div class="grid">
+      <!-- LEFT: Inputs -->
       <div class="card">
         <div class="row">
           <span class="pill">Inputs</span>
-          <span class="mini">Infusion duration fixed at <b>2 hours</b>. Daily dose targets <b>AUC24=400</b>. Choose the first interval where <b>P(trough&gt;20) &lt; 10%</b>.</span>
+          <span class="mini">
+            Infusion duration fixed at <b>2 hours</b>. Daily dose targets <b>AUC0–24 = 400</b> (typical).
+            Choose first interval where <b>P(trough&gt;20) &lt; 10%</b>.
+          </span>
         </div>
 
         <div class="grid" style="grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
@@ -95,8 +116,36 @@
         </div>
 
         <div class="row">
-          <button id="run">Run</button>
+          <button id="run">Run (recommend)</button>
           <button class="secondary" id="reset">Reset</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="row">
+          <span class="pill">Manual dose</span>
+          <span class="mini">Simulates <b>5 doses</b> (5 administrations) and plots concentration over that window.</span>
+        </div>
+
+        <div class="grid" style="grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+          <div class="field">
+            <label>Manual interval</label>
+            <select id="manualTau">
+              <option value="6">q6h</option>
+              <option value="8">q8h</option>
+              <option value="12" selected>q12h</option>
+              <option value="18">q18h</option>
+              <option value="24">q24h</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Manual dose per admin (mg)</label>
+            <input id="manualDose" type="number" step="any" value="15" min="0.1"/>
+          </div>
+        </div>
+
+        <div class="row">
+          <button class="secondary" id="simulateManual">Simulate manual (5 doses)</button>
         </div>
 
         <div class="mini" style="margin-top:10px;">
@@ -111,10 +160,11 @@
         <div class="err" id="err"></div>
       </div>
 
+      <!-- RIGHT: Results + Plot -->
       <div class="card">
         <div class="row">
           <span class="pill">Results</span>
-          <span class="mini">Probability uses log-normal IIV: ωCL=0.28, ωV=0.24. “Trough” computed at steady state (just before next infusion).</span>
+          <span class="mini">Probability uses log-normal IIV: ωCL=0.28, ωV=0.24. Trough computed at steady-state (just before next infusion).</span>
         </div>
 
         <div id="summary" class="out" style="display:none;"></div>
@@ -134,15 +184,17 @@
         </div>
 
         <canvas id="cv"></canvas>
-        <div class="mini">Plot shows <b>typical</b> profile (CLtyp/Vtyp) under the selected regimen (or q24 if NA). Dashed line = 20.</div>
+        <div id="plotTip" class="tooltip"></div>
+
+        <div class="mini">
+          Hover on the curve to see concentration at that time.
+          Plot shows <b>typical</b> profile (CLtyp/Vtyp). Dashed line = 20.
+        </div>
       </div>
     </div>
   </div>
 
 <script>
-/* =========================
-   Utilities
-========================= */
 function fmt(x, d=4){
   if (!Number.isFinite(x)) return "NA";
   const ax = Math.abs(x);
@@ -150,22 +202,15 @@ function fmt(x, d=4){
   return x.toFixed(d);
 }
 
-/* =========================
-   Constants
-========================= */
-const TINF = 2.0;              // fixed 2h infusion
+const TINF = 2.0;
 const TARGET_AUC24 = 400.0;
 const TROUGH_LIMIT = 20.0;
-const MAX_PROB = 0.10;         // < 10%
+const MAX_PROB = 0.10;
 const TAU_ORDER = [6, 8, 12, 18, 24];
 
-// IIV (log-normal)
 const OMEGA_CL = 0.28;
 const OMEGA_V  = 0.24;
 
-/* =========================
-   Covariate priors
-========================= */
 function covariatePrior(wt, gaWeeks, pnaDays, scr){
   const pnaWeeks = pnaDays / 7.0;
   const pma = gaWeeks + pnaWeeks;
@@ -185,9 +230,6 @@ function covariatePrior(wt, gaWeeks, pnaDays, scr){
   return { CLtyp: CL, Vtyp: V, PNAweeks: pnaWeeks, PMA: pma };
 }
 
-/* =========================
-   Random normal (Box-Muller)
-========================= */
 function randn(){
   let u = 0, v = 0;
   while (u === 0) u = Math.random();
@@ -195,30 +237,24 @@ function randn(){
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-/* =========================
-   Steady-state trough for repeated INFUSIONS (closed-form, 1-comp)
-   trough defined as concentration just before next infusion (start of infusion)
-========================= */
 function troughSSInfusion(doseMg, tau, cl, v){
   const ke = cl / v;
+  const A = Math.exp(-ke * TINF);
+  const B = Math.exp(-ke * (tau - TINF));
+  const expTau = A * B;
 
-  const A = Math.exp(-ke * TINF);           // exp(-ke*tinf)
-  const B = Math.exp(-ke * (tau - TINF));   // exp(-ke*(tau-tinf))
-  const expTau = A * B;                     // exp(-ke*tau)
-
-  const R0 = doseMg / TINF;                 // mg/h
-
+  const R0 = doseMg / TINF;
   const denom = (1.0 - expTau);
-  if (denom <= 1e-12) return Infinity;      // extreme slow elimination
+  if (denom <= 1e-12) return Infinity;
 
-  // C0_ss = B*(R0/CL)*(1-A)/(1-exp(-ke*tau))
-  const C0 = B * (R0 / cl) * (1.0 - A) / denom;
-  return C0;
+  return B * (R0 / cl) * (1.0 - A) / denom;
 }
 
-/* =========================
-   Typical concentration-time simulation (superposition)
-========================= */
+function auc24FromRegimen(doseEachMg, tau, cl){
+  const dailyDose = doseEachMg * (24.0 / tau);
+  return dailyDose / cl;
+}
+
 function concAtTime(t, events, cl, v){
   const ke = cl / v;
   let c = 0;
@@ -238,16 +274,20 @@ function concAtTime(t, events, cl, v){
   return Math.max(c, 1e-12);
 }
 
-/* =========================
-   Monte Carlo probability and selection
-========================= */
+function buildEvents(tau, doseEach, nDoses){
+  const events = [];
+  for (let k=0; k<nDoses; k++){
+    events.push({ t0: k * tau, dose: doseEach });
+  }
+  return events;
+}
+
 function runSelection(wt, ga, pna, scr, nmc){
   const cov = covariatePrior(wt, ga, pna, scr);
   const CLtyp = cov.CLtyp;
   const Vtyp = cov.Vtyp;
 
-  // Step 1: daily dose so average AUC24=400
-  const dailyDose = TARGET_AUC24 * CLtyp; // mg/24h
+  const dailyDose = TARGET_AUC24 * CLtyp;
 
   const rows = [];
   let selected = null;
@@ -269,16 +309,16 @@ function runSelection(wt, ga, pna, scr, nmc){
 
     if (!selected && ok){
       selected = { tau, doseEach, p };
-      break; // first acceptable interval per your rule
+      break;
     }
   }
 
   return { cov, dailyDose, rows, selected, okFinal: Boolean(selected) };
 }
 
-/* =========================
-   Plotting (canvas)
-========================= */
+/* Plotting + hover */
+let PLOT_STATE = null;
+
 function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -308,7 +348,14 @@ function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
   const xTo = x => padL + ((x-xmin)/(xmax-xmin))*W;
   const yTo = y => padT + H - ((y-ymin)/(ymax-ymin))*H;
 
-  // axes
+  PLOT_STATE = {
+    series,
+    padL, padT, W, H,
+    xmin, xmax, ymin, ymax,
+    xFrom: px => xmin + ((px - padL)/W) * (xmax - xmin),
+    inPlot: (px, py) => (px>=padL && px<=padL+W && py>=padT && py<=padT+H)
+  };
+
   ctx.strokeStyle = "#111827";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -317,7 +364,6 @@ function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
   ctx.lineTo(padL+W, padT+H);
   ctx.stroke();
 
-  // grid + ticks
   ctx.font = "12px Arial";
   const xTicks=6, yTicks=5;
 
@@ -342,7 +388,6 @@ function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
     ctx.fillText(fmt(yv,1), padL-10, y);
   }
 
-  // labels
   ctx.fillStyle="#111827";
   ctx.textAlign="center"; ctx.textBaseline="alphabetic";
   ctx.fillText(xLabel, padL+W/2, padT+H+36);
@@ -354,7 +399,6 @@ function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
   ctx.fillText(yLabel, 0, 0);
   ctx.restore();
 
-  // hline (20)
   if (hlineY !== null){
     const y = yTo(hlineY);
     ctx.setLineDash([6,4]);
@@ -363,7 +407,6 @@ function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
     ctx.setLineDash([]);
   }
 
-  // series line
   ctx.strokeStyle="#111827";
   ctx.lineWidth=2;
   ctx.beginPath();
@@ -374,14 +417,61 @@ function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
   ctx.stroke();
 }
 
-/* =========================
-   UI Wiring
-========================= */
+const cv = document.getElementById("cv");
+const tip = document.getElementById("plotTip");
+
+function nearestPointByX(series, x){
+  let lo = 0, hi = series.length - 1;
+  while (hi - lo > 1){
+    const mid = (lo + hi) >> 1;
+    if (series[mid].x < x) lo = mid; else hi = mid;
+  }
+  return (Math.abs(series[lo].x - x) <= Math.abs(series[hi].x - x)) ? series[lo] : series[hi];
+}
+
+cv.addEventListener("mousemove", (ev) => {
+  if (!PLOT_STATE) return;
+
+  const rect = cv.getBoundingClientRect();
+  const px = ev.clientX - rect.left;
+  const py = ev.clientY - rect.top;
+
+  if (!PLOT_STATE.inPlot(px, py)){
+    tip.style.display = "none";
+    return;
+  }
+
+  const unit = document.getElementById("unit").value;
+  const xVal = PLOT_STATE.xFrom(px);
+  const p = nearestPointByX(PLOT_STATE.series, xVal);
+
+  tip.style.left = ev.clientX + "px";
+  tip.style.top  = ev.clientY + "px";
+  tip.style.display = "block";
+  tip.innerHTML = `t: <b>${fmt(p.x,2)} h</b><br/>C: <b>${fmt(p.y,2)} ${unit}</b>`;
+});
+
+cv.addEventListener("mouseleave", () => {
+  tip.style.display = "none";
+});
+
+/* UI */
 const errEl = document.getElementById("err");
 const summaryEl = document.getElementById("summary");
 const tableWrap = document.getElementById("tableWrap");
 const probTable = document.getElementById("probTable");
-const cv = document.getElementById("cv");
+
+function validateInputs(){
+  const wt = Number(document.getElementById("wt").value);
+  const ga = Number(document.getElementById("ga").value);
+  const pna = Number(document.getElementById("pna").value);
+  const scr = Number(document.getElementById("scr").value);
+  const nmc = Math.floor(Number(document.getElementById("nmc").value));
+  if (!(wt>0 && ga>0 && pna>=0 && scr>0 && nmc>=500)){
+    throw new Error("Please enter valid inputs. Monte Carlo n must be ≥ 500.");
+  }
+  return { wt, ga, pna, scr, nmc };
+}
 
 function resetUI(){
   errEl.textContent = "";
@@ -391,61 +481,18 @@ function resetUI(){
   drawPlot(cv, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", 20);
 }
 resetUI();
-
 document.getElementById("reset").onclick = resetUI;
 
+/* Recommend */
 document.getElementById("run").onclick = ()=>{
   errEl.textContent = "";
   try{
-    const wt = Number(document.getElementById("wt").value);
-    const ga = Number(document.getElementById("ga").value);
-    const pna = Number(document.getElementById("pna").value);
-    const scr = Number(document.getElementById("scr").value);
-    const nmc = Math.floor(Number(document.getElementById("nmc").value));
+    const { wt, ga, pna, scr, nmc } = validateInputs();
     const unit = document.getElementById("unit").value;
-
-    if (!(wt>0 && ga>0 && pna>=0 && scr>0 && nmc>=500)){
-      throw new Error("Please enter valid inputs. Monte Carlo n must be ≥ 500.");
-    }
 
     const out = runSelection(wt, ga, pna, scr, nmc);
     const { cov, dailyDose, rows, selected, okFinal } = out;
 
-    // Summary block
-    const dailyDosePerKg = dailyDose / wt;
-
-    let html = `
-      <b>Covariates</b><br/>
-      PNA (weeks): ${fmt(cov.PNAweeks,3)}<br/>
-      PMA (weeks): ${fmt(cov.PMA,3)}<br/>
-      CLtyp (L/h): ${fmt(cov.CLtyp,6)}<br/>
-      Vtyp (L): ${fmt(cov.Vtyp,6)}<br/>
-      Infusion: <b>2 hours</b><br/><br/>
-
-      <b>Step 1 — Daily dose for AUC24=400 (average)</b><br/>
-      Daily dose: ${fmt(dailyDose,2)} mg/24h (${fmt(dailyDosePerKg,2)} mg/kg/day)<br/><br/>
-    `;
-
-    if (okFinal){
-      const doseEachPerKg = selected.doseEach / wt;
-      html += `
-        <b>Step 2 — Frequency selection</b><br/>
-        Selected: <span class="ok"><b>q${selected.tau}h</b></span><br/>
-        Dose per administration: ${fmt(selected.doseEach,2)} mg (${fmt(doseEachPerKg,2)} mg/kg)<br/>
-        Estimated P(trough &gt; 20): <b>${fmt(100*selected.p,1)}%</b> (must be &lt; 10%)<br/>
-      `;
-    } else {
-      html += `
-        <b>Step 2 — Frequency selection</b><br/>
-        <span class="bad"><b>NA</b></span> — Even q24 gives P(trough &gt; 20) ≥ 10%.<br/>
-        Interpretation: patient has renal failure / model not suitable.<br/>
-      `;
-    }
-
-    summaryEl.innerHTML = html;
-    summaryEl.style.display = "block";
-
-    // Probability table (display all tested taus until selection)
     probTable.innerHTML = "";
     rows.forEach(r=>{
       const status = r.ok ? `<span class="ok"><b>OK</b></span>` : `<span class="bad"><b>Fail</b></span>`;
@@ -460,23 +507,118 @@ document.getElementById("run").onclick = ()=>{
     });
     tableWrap.style.display = "block";
 
-    // Plot typical curve using selected regimen; if NA, show q24 preview
-    const tau = okFinal ? selected.tau : 24;
-    const doseEach = dailyDose * (tau/24);
+    const dailyDosePerKg = dailyDose / wt;
 
-    const tEnd = 72;
-    const dt = 0.05;
-    const events = [];
-    for (let t0=0; t0<=tEnd+1e-9; t0+=tau){
-      events.push({ t0, dose: doseEach });
+    let html = `
+      <b>Covariates</b><br/>
+      PNA (weeks): ${fmt(cov.PNAweeks,3)}<br/>
+      PMA (weeks): ${fmt(cov.PMA,3)}<br/>
+      CLtyp (L/h): ${fmt(cov.CLtyp,6)}<br/>
+      Vtyp (L): ${fmt(cov.Vtyp,6)}<br/>
+      Infusion: <b>2 hours</b><br/><br/>
+
+      <b>Step 1 — Daily dose for AUC0–24=400 (typical)</b><br/>
+      Daily dose: ${fmt(dailyDose,2)} mg/24h (${fmt(dailyDosePerKg,2)} mg/kg/day)<br/><br/>
+    `;
+
+    let tauPlot = 24;
+    let doseEachPlot = dailyDose * (tauPlot/24);
+
+    if (okFinal){
+      const doseEachPerKg = selected.doseEach / wt;
+      const troughTyp = troughSSInfusion(selected.doseEach, selected.tau, cov.CLtyp, cov.Vtyp);
+      const aucTyp = auc24FromRegimen(selected.doseEach, selected.tau, cov.CLtyp);
+
+      html += `
+        <b>Step 2 — Frequency selection</b><br/>
+        Selected: <span class="ok"><b>q${selected.tau}h</b></span><br/>
+        Dose per administration: ${fmt(selected.doseEach,2)} mg (${fmt(doseEachPerKg,2)} mg/kg)<br/>
+        Estimated P(trough &gt; 20): <b>${fmt(100*selected.p,1)}%</b> (must be &lt; 10%)<br/><br/>
+
+        <b>Predicted (typical) for recommended regimen</b><br/>
+        Typical trough (SS): <b>${fmt(troughTyp,2)} ${unit}</b><br/>
+        Typical AUC0–24: <b>${fmt(aucTyp,1)} mg·h/L</b><br/>
+      `;
+
+      tauPlot = selected.tau;
+      doseEachPlot = selected.doseEach;
+    } else {
+      html += `
+        <b>Step 2 — Frequency selection</b><br/>
+        <span class="bad"><b>NA</b></span> — Even q24 gives P(trough &gt; 20) ≥ 10%.<br/>
+        Interpretation: patient has renal failure / model not suitable.<br/><br/>
+      `;
+      const troughTyp = troughSSInfusion(doseEachPlot, tauPlot, cov.CLtyp, cov.Vtyp);
+      const aucTyp = auc24FromRegimen(doseEachPlot, tauPlot, cov.CLtyp);
+
+      html += `
+        <b>Predicted (typical) preview at q24</b><br/>
+        Typical trough (SS): <b>${fmt(troughTyp,2)} ${unit}</b><br/>
+        Typical AUC0–24: <b>${fmt(aucTyp,1)} mg·h/L</b><br/>
+      `;
     }
 
+    summaryEl.innerHTML = html;
+    summaryEl.style.display = "block";
+
+    // Plot recommended over 72h with repeated doses (for visualization)
+    const nDoses = Math.max(6, Math.ceil(72 / tauPlot) + 1);
+    const events = buildEvents(tauPlot, doseEachPlot, nDoses);
+
+    const tEnd = (nDoses - 1) * tauPlot + tauPlot; // one more interval after last start
+    const dt = 0.05;
     const series = [];
     for (let t=0; t<=tEnd+1e-9; t+=dt){
-      const c = concAtTime(t, events, cov.CLtyp, cov.Vtyp);
-      series.push({ x:t, y:c });
+      series.push({ x:t, y: concAtTime(t, events, cov.CLtyp, cov.Vtyp) });
     }
+    drawPlot(cv, series, "Time (h)", `Concentration (${unit})`, 20);
 
+  } catch(e){
+    errEl.textContent = String(e);
+  }
+};
+
+/* Manual (5 doses) */
+document.getElementById("simulateManual").onclick = ()=>{
+  errEl.textContent = "";
+  try{
+    const { wt, ga, pna, scr } = validateInputs();
+    const unit = document.getElementById("unit").value;
+    const cov = covariatePrior(wt, ga, pna, scr);
+
+    const tau = Number(document.getElementById("manualTau").value);
+    const doseEach = Number(document.getElementById("manualDose").value);
+    if (!(doseEach > 0)) throw new Error("Manual dose must be > 0 mg.");
+
+    const troughTyp = troughSSInfusion(doseEach, tau, cov.CLtyp, cov.Vtyp);
+    const aucTyp = auc24FromRegimen(doseEach, tau, cov.CLtyp);
+    const dailyDose = doseEach * (24.0 / tau);
+    const dailyDosePerKg = dailyDose / wt;
+
+    const current = summaryEl.style.display === "none" ? "" : summaryEl.innerHTML;
+    const manualHtml = `
+      <div class="divider"></div>
+      <b>Manual regimen (typical predictions)</b><br/>
+      Manual: ${fmt(doseEach,2)} mg q${tau}h (2h infusion)<br/>
+      Daily dose: ${fmt(dailyDose,2)} mg/24h (${fmt(dailyDosePerKg,2)} mg/kg/day)<br/>
+      Typical trough (SS): <b>${fmt(troughTyp,2)} ${unit}</b><br/>
+      Typical AUC0–24: <b>${fmt(aucTyp,1)} mg·h/L</b><br/>
+      Plot window: <b>5 doses</b> (from dose 1 to dose 5)
+    `;
+    summaryEl.innerHTML = (current || "") + manualHtml;
+    summaryEl.style.display = "block";
+
+    // Simulate EXACTLY 5 doses
+    const nDoses = 5;
+    const events = buildEvents(tau, doseEach, nDoses);
+
+    // plot from 0 to just before dose 6 (i.e., 5 intervals)
+    const tEnd = (nDoses) * tau; // includes the washout after 5th start until next scheduled time
+    const dt = 0.02;
+    const series = [];
+    for (let t=0; t<=tEnd+1e-9; t+=dt){
+      series.push({ x:t, y: concAtTime(t, events, cov.CLtyp, cov.Vtyp) });
+    }
     drawPlot(cv, series, "Time (h)", `Concentration (${unit})`, 20);
 
   } catch(e){
@@ -486,3 +628,4 @@ document.getElementById("run").onclick = ()=>{
 </script>
 </body>
 </html>
+
