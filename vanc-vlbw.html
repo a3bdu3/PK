@@ -1,19 +1,15 @@
-\<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>PK Tools</title>
+  <title>Vancomycin VLBW (A priori) — AUC + Probabilistic Trough</title>
   <style>
     :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; }
     body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); }
-    .wrap { max-width: 980px; margin: 28px auto; padding: 0 16px; }
-
-    .topbar{
-      display:flex; justify-content:space-between; align-items:center; gap:12px;
-      margin-bottom: 12px;
-    }
-    h1 { margin:0; font-size: 22px; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .topbar{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom: 10px; }
+    h1 { margin:0; font-size: 18px; }
     .nav a{
       display:inline-block; padding:8px 10px; border-radius: 10px;
       border:1px solid var(--border); background:#fff; color:#111827; text-decoration:none; font-size: 13px;
@@ -21,91 +17,472 @@
     }
     .nav a:hover{ border-color:#9ca3af; }
 
-    .card { background:var(--card); border:1px solid var(--border); border-radius: 16px; padding: 18px; box-shadow: 0 10px 18px rgba(0,0,0,.06); }
-    p { margin: 8px 0; color: var(--muted); line-height: 1.6; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius: 16px; padding: 14px; box-shadow: 0 10px 18px rgba(0,0,0,.06); }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
 
-    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
-    @media (max-width: 760px){ .grid{ grid-template-columns:1fr; } }
-
-    a.box{
-      display:block; text-decoration:none; color:inherit;
-      border:1px solid var(--border); border-radius: 14px; padding: 14px; background:#fff;
+    .field { display:flex; flex-direction:column; gap:6px; margin-bottom: 10px; }
+    label { font-size:12px; color: var(--muted); }
+    input, select { padding:10px; border:1px solid var(--border); border-radius: 10px; font-size: 14px; }
+    button{
+      padding:10px 12px; border-radius: 12px; border:1px solid #111827; background:#111827; color:#fff;
+      cursor:pointer; font-size: 14px;
     }
-    a.box:hover { border-color:#9ca3af; }
-    .title { font-weight: 700; margin-bottom: 6px; }
-    .mini { color: var(--muted); font-size: 13px; line-height: 1.4; }
+    button.secondary{ background:#fff; color:#111827; border-color: var(--border); }
 
-    .row { display:flex; gap:10px; flex-wrap:wrap; margin-top: 14px; }
-    .btn {
-      display:inline-block; padding:10px 12px; border-radius: 12px;
-      border:1px solid #111827; background:#111827; color:#fff; text-decoration:none; font-size: 14px;
-    }
-    .btn.secondary { background:#fff; color:#111827; border-color: var(--border); }
-    .footer { margin-top: 14px; font-size: 12px; color: var(--muted); }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top: 6px; }
+    .mini { color: var(--muted); font-size: 12px; line-height: 1.5; }
     .pill { display:inline-block; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color: var(--muted); background:#fff; }
+
+    .out{ margin-top:10px; padding:10px; border:1px dashed var(--border); border-radius:12px; background:#f9fafb; }
+    .err{ color:#b91c1c; font-size:12px; margin-top:10px; white-space: pre-wrap; }
+
+    canvas { width:100%; height:360px; display:block; background:#fff; border:1px solid var(--border); border-radius:12px; margin-top: 10px; }
+
+    table{ width:100%; border-collapse:collapse; margin-top:10px; font-size: 13px; }
+    th, td{ border-bottom:1px solid var(--border); padding:8px; text-align:left; }
+    th{ color: var(--muted); font-weight: 700; font-size: 12px; }
+    .ok{ color:#065f46; }
+    .bad{ color:#b91c1c; }
+    code{ font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="topbar">
-      <h1>PK Tools</h1>
+      <h1>Vancomycin VLBW — A priori dosing (AUC24 + Probabilistic trough)</h1>
       <div class="nav">
+        <a href="index.html">Home</a>
         <a href="calculators.html">Calculators</a>
-        <a href="vanc-vlbw.html">Vanco VLBW</a>
-        <a href="lectures.html">Lectures</a>
-        <a href="about.html">About</a>
       </div>
     </div>
 
-    <div class="card">
-      <span class="pill">Static site</span>
+    <div class="grid">
+      <div class="card">
+        <div class="row">
+          <span class="pill">Inputs</span>
+          <span class="mini">Infusion duration fixed at <b>2 hours</b>. Daily dose targets <b>AUC24=400</b>. Choose the first interval where <b>P(trough&gt;20) &lt; 10%</b>.</span>
+        </div>
 
-      <p>
-        A lightweight PK toolkit with calculators and a lectures library.
-      </p>
+        <div class="grid" style="grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+          <div class="field">
+            <label>Weight (kg)</label>
+            <input id="wt" type="number" step="any" value="1.0" min="0.1"/>
+          </div>
+          <div class="field">
+            <label>GA (weeks)</label>
+            <input id="ga" type="number" step="any" value="28" min="20"/>
+          </div>
+          <div class="field">
+            <label>PNA (days)</label>
+            <input id="pna" type="number" step="any" value="7" min="0"/>
+          </div>
+          <div class="field">
+            <label>SCr (mg/dL)</label>
+            <input id="scr" type="number" step="any" value="0.6" min="0.1"/>
+          </div>
+          <div class="field">
+            <label>Monte Carlo samples (n)</label>
+            <input id="nmc" type="number" step="100" value="3000" min="500"/>
+          </div>
+          <div class="field">
+            <label>Units label</label>
+            <select id="unit">
+              <option value="mg/L">mg/L</option>
+              <option value="µg/mL">µg/mL</option>
+            </select>
+          </div>
+        </div>
 
-      <div class="row">
-        <a class="btn" href="calculators.html">Open Calculators</a>
-        <a class="btn secondary" href="vanc-vlbw.html">Open Vanco VLBW</a>
+        <div class="row">
+          <button id="run">Run</button>
+          <button class="secondary" id="reset">Reset</button>
+        </div>
+
+        <div class="mini" style="margin-top:10px;">
+          Model:
+          <div><code>PMA (weeks) = GA + PNA/7</code></div>
+          <div><code>V = 0.81*(WT/0.93)</code></div>
+          <div><code>CL = 0.09*(WT/0.93)^0.75*(0.6/SCr)^0.48 * PMA^4.42/(PMA^4.42 + 26.3^4.42)</code></div>
+          <div><code>Daily dose (mg/24h) = 400 × CLtyp</code></div>
+          <div><code>Pick first τ in [6,8,12,18,24] with P(trough&gt;20)&lt;10%</code></div>
+        </div>
+
+        <div class="err" id="err"></div>
       </div>
 
-      <div class="grid">
-        <a class="box" href="calculators.html">
-          <div class="title">PK Calculators</div>
-          <div class="mini">
-            Oral (Ka/Ke), IV bolus, intermittent infusion, and nonlinear PK with plots and steady-state outputs.
-          </div>
-        </a>
+      <div class="card">
+        <div class="row">
+          <span class="pill">Results</span>
+          <span class="mini">Probability uses log-normal IIV: ωCL=0.28, ωV=0.24. “Trough” computed at steady state (just before next infusion).</span>
+        </div>
 
-        <a class="box" href="vanc-vlbw.html">
-          <div class="title">Vancomycin VLBW (A priori)</div>
-          <div class="mini">
-            Computes CL/V from WT, GA, PNA, SCr; sets daily dose to AUC24=400 and selects interval using P(trough &gt; 20) &lt; 20%.
-            Infusion fixed at 2 hours.
-          </div>
-        </a>
+        <div id="summary" class="out" style="display:none;"></div>
 
-        <a class="box" href="lectures.html">
-          <div class="title">Lectures Library</div>
-          <div class="mini">
-            Keep your PPT/PPTX lectures organized (note: static hosting can’t store uploads server-side).
-          </div>
-        </a>
+        <div id="tableWrap" style="display:none;">
+          <table>
+            <thead>
+              <tr>
+                <th>Interval</th>
+                <th>Dose per admin</th>
+                <th>P(trough &gt; 20)</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="probTable"></tbody>
+          </table>
+        </div>
 
-        <a class="box" href="about.html">
-          <div class="title">About / Disclaimer</div>
-          <div class="mini">
-            Model assumptions, equations, and usage notes.
-          </div>
-        </a>
-      </div>
-
-      <div class="footer">
-        Tip: keep <b>index.html</b>, <b>calculators.html</b>, <b>vanc-vlbw.html</b>, <b>lectures.html</b>, and <b>about.html</b> in the <b>same folder</b> in your repo.
+        <canvas id="cv"></canvas>
+        <div class="mini">Plot shows <b>typical</b> profile (CLtyp/Vtyp) under the selected regimen (or q24 if NA). Dashed line = 20.</div>
       </div>
     </div>
   </div>
+
+<script>
+/* =========================
+   Utilities
+========================= */
+function fmt(x, d=4){
+  if (!Number.isFinite(x)) return "NA";
+  const ax = Math.abs(x);
+  if (ax !== 0 && (ax >= 1e6 || ax < 1e-4)) return x.toExponential(4);
+  return x.toFixed(d);
+}
+
+/* =========================
+   Constants
+========================= */
+const TINF = 2.0;              // fixed 2h infusion
+const TARGET_AUC24 = 400.0;
+const TROUGH_LIMIT = 20.0;
+const MAX_PROB = 0.10;         // < 10%
+const TAU_ORDER = [6, 8, 12, 18, 24];
+
+// IIV (log-normal)
+const OMEGA_CL = 0.28;
+const OMEGA_V  = 0.24;
+
+/* =========================
+   Covariate priors
+========================= */
+function covariatePrior(wt, gaWeeks, pnaDays, scr){
+  const pnaWeeks = pnaDays / 7.0;
+  const pma = gaWeeks + pnaWeeks;
+
+  const wtStd = 0.93;
+  const V = 0.81 * (wt / wtStd);
+
+  const hill = 4.42;
+  const tm50 = 26.3;
+  const matur = Math.pow(pma, hill) / (Math.pow(pma, hill) + Math.pow(tm50, hill));
+
+  const CL = 0.09 *
+    Math.pow(wt / wtStd, 0.75) *
+    Math.pow(0.6 / scr, 0.48) *
+    matur;
+
+  return { CLtyp: CL, Vtyp: V, PNAweeks: pnaWeeks, PMA: pma };
+}
+
+/* =========================
+   Random normal (Box-Muller)
+========================= */
+function randn(){
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/* =========================
+   Steady-state trough for repeated INFUSIONS (closed-form, 1-comp)
+   trough defined as concentration just before next infusion (start of infusion)
+========================= */
+function troughSSInfusion(doseMg, tau, cl, v){
+  const ke = cl / v;
+
+  const A = Math.exp(-ke * TINF);           // exp(-ke*tinf)
+  const B = Math.exp(-ke * (tau - TINF));   // exp(-ke*(tau-tinf))
+  const expTau = A * B;                     // exp(-ke*tau)
+
+  const R0 = doseMg / TINF;                 // mg/h
+
+  const denom = (1.0 - expTau);
+  if (denom <= 1e-12) return Infinity;      // extreme slow elimination
+
+  // C0_ss = B*(R0/CL)*(1-A)/(1-exp(-ke*tau))
+  const C0 = B * (R0 / cl) * (1.0 - A) / denom;
+  return C0;
+}
+
+/* =========================
+   Typical concentration-time simulation (superposition)
+========================= */
+function concAtTime(t, events, cl, v){
+  const ke = cl / v;
+  let c = 0;
+
+  for (const ev of events){
+    if (t < ev.t0) continue;
+    const dt = t - ev.t0;
+
+    const R0 = ev.dose / TINF;
+    if (dt <= TINF){
+      c += (R0 / cl) * (1 - Math.exp(-ke * dt));
+    } else {
+      const cEnd = (R0 / cl) * (1 - Math.exp(-ke * TINF));
+      c += cEnd * Math.exp(-ke * (dt - TINF));
+    }
+  }
+  return Math.max(c, 1e-12);
+}
+
+/* =========================
+   Monte Carlo probability and selection
+========================= */
+function runSelection(wt, ga, pna, scr, nmc){
+  const cov = covariatePrior(wt, ga, pna, scr);
+  const CLtyp = cov.CLtyp;
+  const Vtyp = cov.Vtyp;
+
+  // Step 1: daily dose so average AUC24=400
+  const dailyDose = TARGET_AUC24 * CLtyp; // mg/24h
+
+  const rows = [];
+  let selected = null;
+
+  for (const tau of TAU_ORDER){
+    const doseEach = dailyDose * (tau / 24.0);
+
+    let count = 0;
+    for (let i=0; i<nmc; i++){
+      const cl = Math.exp(Math.log(CLtyp) + OMEGA_CL * randn());
+      const v  = Math.exp(Math.log(Vtyp)  + OMEGA_V  * randn());
+      const tr = troughSSInfusion(doseEach, tau, cl, v);
+      if (tr > TROUGH_LIMIT) count++;
+    }
+    const p = count / nmc;
+
+    const ok = (p < MAX_PROB);
+    rows.push({ tau, doseEach, p, ok });
+
+    if (!selected && ok){
+      selected = { tau, doseEach, p };
+      break; // first acceptable interval per your rule
+    }
+  }
+
+  return { cov, dailyDose, rows, selected, okFinal: Boolean(selected) };
+}
+
+/* =========================
+   Plotting (canvas)
+========================= */
+function drawPlot(canvas, series, xLabel, yLabel, hlineY=null){
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+
+  const cssW = canvas.clientWidth;
+  const cssH = canvas.clientHeight;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const padL = 92, padR = 18, padT = 14, padB = 44;
+  const W = cssW - padL - padR;
+  const H = cssH - padT - padB;
+
+  const xs = series.map(p=>p.x);
+  const ys = series.map(p=>p.y);
+
+  let xmin = Math.min(...xs), xmax = Math.max(...xs);
+  let ymin = 0;
+  let ymax = Math.max(...ys, (hlineY ?? 0));
+  if (!Number.isFinite(ymax) || ymax <= 0) ymax = 1;
+  if (xmax === xmin) xmax = xmin + 1;
+  ymax *= 1.06;
+
+  const xTo = x => padL + ((x-xmin)/(xmax-xmin))*W;
+  const yTo = y => padT + H - ((y-ymin)/(ymax-ymin))*H;
+
+  // axes
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT+H);
+  ctx.lineTo(padL+W, padT+H);
+  ctx.stroke();
+
+  // grid + ticks
+  ctx.font = "12px Arial";
+  const xTicks=6, yTicks=5;
+
+  for (let i=0;i<=xTicks;i++){
+    const t = i/xTicks;
+    const x = padL + t*W;
+    const xv = xmin + t*(xmax-xmin);
+    ctx.strokeStyle="#e5e7eb";
+    ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+H); ctx.stroke();
+    ctx.fillStyle="#6b7280";
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    ctx.fillText(fmt(xv,0), x, padT+H+8);
+  }
+  for (let i=0;i<=yTicks;i++){
+    const t = i/yTicks;
+    const y = padT+H - t*H;
+    const yv = ymin + t*(ymax-ymin);
+    ctx.strokeStyle="#e5e7eb";
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+W,y); ctx.stroke();
+    ctx.fillStyle="#6b7280";
+    ctx.textAlign="right"; ctx.textBaseline="middle";
+    ctx.fillText(fmt(yv,1), padL-10, y);
+  }
+
+  // labels
+  ctx.fillStyle="#111827";
+  ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+  ctx.fillText(xLabel, padL+W/2, padT+H+36);
+
+  ctx.save();
+  ctx.translate(20, padT+H/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+
+  // hline (20)
+  if (hlineY !== null){
+    const y = yTo(hlineY);
+    ctx.setLineDash([6,4]);
+    ctx.strokeStyle="#111827";
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+W,y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // series line
+  ctx.strokeStyle="#111827";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  series.forEach((p,idx)=>{
+    const xp = xTo(p.x), yp = yTo(p.y);
+    if (idx===0) ctx.moveTo(xp,yp); else ctx.lineTo(xp,yp);
+  });
+  ctx.stroke();
+}
+
+/* =========================
+   UI Wiring
+========================= */
+const errEl = document.getElementById("err");
+const summaryEl = document.getElementById("summary");
+const tableWrap = document.getElementById("tableWrap");
+const probTable = document.getElementById("probTable");
+const cv = document.getElementById("cv");
+
+function resetUI(){
+  errEl.textContent = "";
+  summaryEl.style.display = "none";
+  tableWrap.style.display = "none";
+  probTable.innerHTML = "";
+  drawPlot(cv, [{x:0,y:0},{x:1,y:0}], "Time (h)", "Concentration", 20);
+}
+resetUI();
+
+document.getElementById("reset").onclick = resetUI;
+
+document.getElementById("run").onclick = ()=>{
+  errEl.textContent = "";
+  try{
+    const wt = Number(document.getElementById("wt").value);
+    const ga = Number(document.getElementById("ga").value);
+    const pna = Number(document.getElementById("pna").value);
+    const scr = Number(document.getElementById("scr").value);
+    const nmc = Math.floor(Number(document.getElementById("nmc").value));
+    const unit = document.getElementById("unit").value;
+
+    if (!(wt>0 && ga>0 && pna>=0 && scr>0 && nmc>=500)){
+      throw new Error("Please enter valid inputs. Monte Carlo n must be ≥ 500.");
+    }
+
+    const out = runSelection(wt, ga, pna, scr, nmc);
+    const { cov, dailyDose, rows, selected, okFinal } = out;
+
+    // Summary block
+    const dailyDosePerKg = dailyDose / wt;
+
+    let html = `
+      <b>Covariates</b><br/>
+      PNA (weeks): ${fmt(cov.PNAweeks,3)}<br/>
+      PMA (weeks): ${fmt(cov.PMA,3)}<br/>
+      CLtyp (L/h): ${fmt(cov.CLtyp,6)}<br/>
+      Vtyp (L): ${fmt(cov.Vtyp,6)}<br/>
+      Infusion: <b>2 hours</b><br/><br/>
+
+      <b>Step 1 — Daily dose for AUC24=400 (average)</b><br/>
+      Daily dose: ${fmt(dailyDose,2)} mg/24h (${fmt(dailyDosePerKg,2)} mg/kg/day)<br/><br/>
+    `;
+
+    if (okFinal){
+      const doseEachPerKg = selected.doseEach / wt;
+      html += `
+        <b>Step 2 — Frequency selection</b><br/>
+        Selected: <span class="ok"><b>q${selected.tau}h</b></span><br/>
+        Dose per administration: ${fmt(selected.doseEach,2)} mg (${fmt(doseEachPerKg,2)} mg/kg)<br/>
+        Estimated P(trough &gt; 20): <b>${fmt(100*selected.p,1)}%</b> (must be &lt; 10%)<br/>
+      `;
+    } else {
+      html += `
+        <b>Step 2 — Frequency selection</b><br/>
+        <span class="bad"><b>NA</b></span> — Even q24 gives P(trough &gt; 20) ≥ 10%.<br/>
+        Interpretation: patient has renal failure / model not suitable.<br/>
+      `;
+    }
+
+    summaryEl.innerHTML = html;
+    summaryEl.style.display = "block";
+
+    // Probability table (display all tested taus until selection)
+    probTable.innerHTML = "";
+    rows.forEach(r=>{
+      const status = r.ok ? `<span class="ok"><b>OK</b></span>` : `<span class="bad"><b>Fail</b></span>`;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>q${r.tau}h</td>
+        <td>${fmt(r.doseEach,2)} mg</td>
+        <td>${fmt(100*r.p,1)}%</td>
+        <td>${status}</td>
+      `;
+      probTable.appendChild(tr);
+    });
+    tableWrap.style.display = "block";
+
+    // Plot typical curve using selected regimen; if NA, show q24 preview
+    const tau = okFinal ? selected.tau : 24;
+    const doseEach = dailyDose * (tau/24);
+
+    const tEnd = 72;
+    const dt = 0.05;
+    const events = [];
+    for (let t0=0; t0<=tEnd+1e-9; t0+=tau){
+      events.push({ t0, dose: doseEach });
+    }
+
+    const series = [];
+    for (let t=0; t<=tEnd+1e-9; t+=dt){
+      const c = concAtTime(t, events, cov.CLtyp, cov.Vtyp);
+      series.push({ x:t, y:c });
+    }
+
+    drawPlot(cv, series, "Time (h)", `Concentration (${unit})`, 20);
+
+  } catch(e){
+    errEl.textContent = String(e);
+  }
+};
+</script>
 </body>
 </html>
-
-
